@@ -118,7 +118,7 @@ class DinoEnv:
         elif action == 1:
             self.body.send_keys(Keys.UP)
         elif action == 2:
-            self.action_chain.keyDown(Keys.DOWN)
+            ActionChains(self.driver).keyDown(Keys.DOWN).perform()
         sleep(0.1)
         if action == 2:
             ActionChains(self.driver).keyUp(Keys.DOWN).perform()
