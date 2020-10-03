@@ -2,7 +2,7 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.commom.action_chains import ActionChains
+from selenium.webdriver.common.action_chains import ActionChains
 import os
 from time import sleep
 import cv2
@@ -22,13 +22,13 @@ def preprocess_image(image_path, save_path):
     cv2.waitKey(0)
 
     # Height
-    assert image.shape[0] >= 600
+    assert image.shape[0] >= 500
     # width
-    assert image.shape[1] >= 1200
+    assert image.shape[1] >= 1000
 
-    # Crop to 1200x600
+    # Crop to 1000x500
     # y and x are flipped
-    image = image[:600, :1200]
+    image = image[:500, :1000]
 
     # Grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
@@ -42,16 +42,23 @@ def preprocess_image(image_path, save_path):
     edged = cv2.resize(edged, (120, 60),
         interpolation = cv2.INTER_AREA)
 
+    # Transform on black and white
+    edged[edged > 20] = 255
+
     # Optional
     # cv2.imwrite(save_path, edged)
+
+    edged = edged / 255.0
 
     return edged
 
 def epsilon_greedy_policy(state, epsilon=0):
     if np.random.rand() < epsilon:
+        print("Random: ", end="")
         return np.random.randint(n_outputs)
     else:
-        Q_values = model.predict(state[np.newaxis])
+        print("Model's Prediction: ", end="")
+        Q_values = model.predict(state.reshape(-1, 60, 120))
         return np.argmax(Q_values[0])
 
 def sample_experiences(batch_size):
@@ -91,44 +98,46 @@ class DinoEnv:
         self.body = None
 
     def reset(self):
-        if self.driver != None:
-            self.driver.send_keys(Keys.UP)
-        chrome_options = Options()
-        chrome_options.add_argument("--window-size=1600,900")
-        self.driver = webdriver.Chrome(executable_path="chromedriver.exe",
-                        options=chrome_options)
-        try:
-            self.driver.get(dino_path)
-        except Exception as err:
-            print(err)
+        if self.driver is not None:
+            self.body.send_keys(Keys.UP)
+        else:
+            chrome_options = Options()
+            chrome_options.add_argument("--window-size=1200,675")
+            self.driver = webdriver.Chrome(executable_path="chromedriver.exe",
+                            options=chrome_options)
+            try:
+                self.driver.get(dino_path)
+            except Exception as err:
+                print(err)
 
-        self.driver.execute_script("Runner.prototype.onVisibilityChange = function(){};")
+            self.driver.execute_script("Runner.prototype.onVisibilityChange = function(){};")
 
-        self.body = self.driver.find_element_by_tag_name("body")
-        self.body.send_keys(Keys.UP)
+            self.body = self.driver.find_element_by_tag_name("body")
+            self.body.send_keys(Keys.UP)
 
-        sleep(2)
-        # self.pause()
+            sleep(2)
+        self.pause()
+        return self.get_state()
 
     def step(self, action):
-        # self.play()
+        self.play()
         print(action)
-        if action == 0:
+        if action == 1:
             pass
-        elif action == 1:
-            self.body.send_keys(Keys.UP)
         elif action == 2:
-            ActionChains(self.driver).keyDown(Keys.DOWN).perform()
+            self.body.send_keys(Keys.UP)
+        elif action == 0:
+            ActionChains(self.driver).key_down(Keys.DOWN).perform()
         sleep(0.1)
-        if action == 2:
-            ActionChains(self.driver).keyUp(Keys.DOWN).perform()
+        if action == 0:
+            ActionChains(self.driver).key_up(Keys.DOWN).perform()
         next_state = self.get_state()
         done = self.get_done()
         if done:
-            reward = 1
+            reward = -1
         else:
-            reward = -10
-        # self.pause()
+            reward = 1
+        self.pause()
         return next_state, reward, done
 
     def get_state(self):
@@ -142,54 +151,39 @@ class DinoEnv:
         return done
 
     def pause(self):
-        self.driver.execute_script("Runner.instance_.playing = false")
+        self.driver.execute_script("Runner.instance_.stop()")
 
     def play(self):
-        self.driver.execute_script("Runner.instance_.playing = true")
+        self.driver.execute_script("Runner.instance_.play()")
 
 env = DinoEnv()
 n_outputs = 3
 
 model = keras.Sequential([
-    Conv2D(64, 5, padding="same", input_shape=(60, 120, 1)),
-    BatchNormalization(),
-    Conv2D(64, 5),
-    BatchNormalization(),
-    MaxPooling2D(),
-    BatchNormalization(),
-    Dropout(0.5),
-    Conv2D(128, 5),
-    BatchNormalization(),
-    MaxPooling2D(),
-    Conv2D(128, 5),
-    BatchNormalization(),
-    MaxPooling2D(),
-    BatchNormalization(),
-    Dropout(0.5),
-    Flatten(),
-    Dense(100, activation="relu"),
-    BatchNormalization(),
-    Dropout(0.5),
-    Dense(n_outputs, activation="softmax")
+    Flatten(input_shape=(60, 120)),
+    Dense(32, activation="relu"),
+    Dense(32, activation="relu"),
+    Dense(n_outputs, activation="linear")
 ])
 
-print(model.summary())
-
-replay_buffer = deque(maxlen=2000)
+replay_buffer = deque(maxlen=5000)
 
 
 batch_size = 32
 discount_factor = 0.9
-optmizer = keras.optimizers.Adam(lr=1e-3)
+optmizer = keras.optimizers.RMSprop(lr=1e-3)
 loss_fn = keras.losses.mean_squared_error
 
-for episode in range(600):
+for episode in range(10000):
+    sleep(1)
     obs = env.reset()
     print(f"Episode: {episode}")
-    for step in range(200):
+    while True:
         epsilon = max(1 - episode / 500, 0.01)
         obs, reward, done = play_one_step(env, obs, epsilon)
         if done:
             break
-    if episode > 50:
+    if episode >= 50:
         training_step(batch_size)
+# env.reset()
+# env.get_state()
