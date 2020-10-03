@@ -28,7 +28,7 @@ def preprocess_image(image_path, save_path):
 
     # Crop to 1000x500
     # y and x are flipped
-    image = image[:500, :1000]
+    image = image[50:450, :1000]
 
     # Grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
@@ -39,15 +39,16 @@ def preprocess_image(image_path, save_path):
 
 
     # Rescale - (width, height)
-    edged = cv2.resize(edged, (120, 60),
+    edged = cv2.resize(edged, (60, 60),
         interpolation = cv2.INTER_AREA)
 
     # Transform on black and white
     edged[edged > 20] = 255
 
     # Optional
-    # cv2.imwrite(save_path, edged)
+    cv2.imwrite(save_path, edged)
 
+    edged = edged.reshape(60, 60, 1)
     edged = edged / 255.0
 
     return edged
@@ -58,8 +59,8 @@ def epsilon_greedy_policy(state, epsilon=0):
         return np.random.randint(n_outputs)
     else:
         print("Model's Prediction: ", end="")
-        Q_values = model.predict(state.reshape(-1, 60, 120))
-        return np.argmax(Q_values[0])
+        Q_values = model.predict(state.reshape(-1, 60, 60, 1))
+        return np.argmax(Q_values)
 
 def sample_experiences(batch_size):
     indices = np.random.randint(len(replay_buffer), size=batch_size)
@@ -102,6 +103,7 @@ class DinoEnv:
             self.body.send_keys(Keys.UP)
         else:
             chrome_options = Options()
+            chrome_options.add_argument("disable-infobars")
             chrome_options.add_argument("--window-size=1200,675")
             self.driver = webdriver.Chrome(executable_path="chromedriver.exe",
                             options=chrome_options)
@@ -116,11 +118,11 @@ class DinoEnv:
             self.body.send_keys(Keys.UP)
 
             sleep(2)
-        self.pause()
+        # self.pause()
         return self.get_state()
 
     def step(self, action):
-        self.play()
+        # self.play()
         print(action)
         if action == 1:
             pass
@@ -128,16 +130,14 @@ class DinoEnv:
             self.body.send_keys(Keys.UP)
         elif action == 0:
             ActionChains(self.driver).key_down(Keys.DOWN).perform()
+            # self.body.send_keys(Keys.DOWN)
         sleep(0.1)
         if action == 0:
             ActionChains(self.driver).key_up(Keys.DOWN).perform()
+        # self.pause()
         next_state = self.get_state()
         done = self.get_done()
-        if done:
-            reward = -1
-        else:
-            reward = 1
-        self.pause()
+        reward = self.get_reward(done)
         return next_state, reward, done
 
     def get_state(self):
@@ -150,27 +150,37 @@ class DinoEnv:
         done = not self.driver.execute_script("return Runner.instance_.playing")
         return done
 
+    def get_reward(self, done):
+        score_array = self.driver.execute_script("return Runner.instance_.distanceMeter.digits")
+        score = ''.join(score_array)
+        score = int(score)
+        if done:
+            return -1 * score / 10
+        else:
+            return 0.1 * score / 10
+
     def pause(self):
-        self.driver.execute_script("Runner.instance_.stop()")
+        self.driver.execute_script("Runner.instance_.stop();")
 
     def play(self):
-        self.driver.execute_script("Runner.instance_.play()")
+        self.driver.execute_script("Runner.instance_.play();")
 
 env = DinoEnv()
 n_outputs = 3
 
 model = keras.Sequential([
-    Flatten(input_shape=(60, 120)),
-    Dense(32, activation="relu"),
-    Dense(32, activation="relu"),
-    Dense(n_outputs, activation="linear")
+    Conv2D(16, 8, strides=4, input_shape=(60, 60, 1), activation="elu"),
+    Conv2D(32, 4, strides=2, activation="elu"),
+    Flatten(),
+    Dense(256, activation="relu"),
+    Dense(n_outputs)
 ])
 
-replay_buffer = deque(maxlen=5000)
+replay_buffer = deque(maxlen=50000)
 
 
 batch_size = 32
-discount_factor = 0.9
+discount_factor = 0.95
 optmizer = keras.optimizers.RMSprop(lr=1e-3)
 loss_fn = keras.losses.mean_squared_error
 
