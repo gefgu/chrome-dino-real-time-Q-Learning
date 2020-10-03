@@ -1,9 +1,9 @@
-# Chrome Dino Bot Using Deep Q-Learning At Real Time
+# Chrome Dino Bot Using Deep Q-Learning At Real-Time
 
 ![Dino Game Image](dino_images/screenshot.png)
 
 In this project, I learned:
-* How to implement a Deep Q-Learning custom trained
+* How to implement a Deep Q-Learning custom training
 * cv2 library(resize, find edges)
 * ActionChains from selenium
 * and a little bit more of other things...
